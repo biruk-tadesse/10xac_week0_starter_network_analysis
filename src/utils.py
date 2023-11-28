@@ -15,10 +15,10 @@ from nltk.corpus import stopwords
 def break_combined_weeks(combined_weeks):
     """
     Breaks combined weeks into separate weeks.
-    
+
     Args:
         combined_weeks: list of tuples of weeks to combine
-        
+
     Returns:
         tuple of lists of weeks to be treated as plus one and minus one
     """
@@ -35,6 +35,7 @@ def break_combined_weeks(combined_weeks):
 
     return plus_one_week, minus_one_week
 
+
 def get_msgs_df_info(df):
     msgs_count_dict = df.user.value_counts().to_dict()
     replies_count_dict = dict(Counter([u for r in df.replies if r != None for u in r]))
@@ -43,85 +44,61 @@ def get_msgs_df_info(df):
     return msgs_count_dict, replies_count_dict, mentions_count_dict, links_count_dict
 
 
-
 def get_messages_dict(msgs):
-    msg_list = {
-            "msg_id":[],
-            "text":[],
-            "attachments":[],
-            "user":[],
-            "mentions":[],
-            "emojis":[],
-            "reactions":[],
-            "replies":[],
-            "replies_to":[],
-            "ts":[],
-            "links":[],
-            "link_count":[]
-            }
-
+    msg_list = []
 
     for msg in msgs:
-        if "subtype" not in msg:
-            try:
-                msg_list["msg_id"].append(msg["client_msg_id"])
-            except:
-                msg_list["msg_id"].append(None)
-            
-            msg_list["text"].append(msg["text"])
-            msg_list["user"].append(msg["user"])
-            msg_list["ts"].append(msg["ts"])
-            
-            if "reactions" in msg:
-                msg_list["reactions"].append(msg["reactions"])
-            else:
-                msg_list["reactions"].append(None)
+        message_type = msg.get("subtype", "message")
+        message_content = msg.get("text", None)
+        sender_name = msg.get("user", None)
+        time_sent = msg.get("ts", None)
+        message_distribution = "channel_join" if message_type == "channel_join" else "message"
 
-            if "parent_user_id" in msg:
-                msg_list["replies_to"].append(msg["ts"])
-            else:
-                msg_list["replies_to"].append(None)
+        msg_dict = {
+            "message_type": message_type,
+            "message_content": message_content,
+            "sender_name": sender_name,
+            "time_sent": time_sent,
+            "message_distribution": message_distribution,
+            "time_thread_start": msg["ts"] if "parent_user_id" in msg else None,
+            "reply_count": len(msg["replies"]) if "thread_ts" in msg and "reply_users" in msg else None,
+            "reply_user_count": len(msg["reply_users"]) if "thread_ts" in msg and "reply_users" in msg else None,
+            "time_thread_end": msg["ts"] if "thread_ts" in msg and "reply_users" in msg else None,
+            "reply_users": msg["reply_users"] if "thread_ts" in msg and "reply_users" in msg else None,
+            "blocks": [],
+            "emojis": [],
+            "mentions": [],
+            "links": [],
+            "link_count": 0
+        }
 
-            if "thread_ts" in msg and "reply_users" in msg:
-                msg_list["replies"].append(msg["replies"])
-            else:
-                msg_list["replies"].append(None)
-            
-            if "blocks" in msg:
-                emoji_list = []
-                mention_list = []
-                link_count = 0
-                links = []
-                
-                for blk in msg["blocks"]:
-                    if "elements" in blk:
-                        for elm in blk["elements"]:
-                            if "elements" in elm:
-                                for elm_ in elm["elements"]:
-                                    
-                                    if "type" in elm_:
-                                        if elm_["type"] == "emoji":
-                                            emoji_list.append(elm_["name"])
+        if "blocks" in msg and msg["blocks"] is not None:
+            emoji_list = []
+            mention_list = []
+            links = []
 
-                                        if elm_["type"] == "user":
-                                            mention_list.append(elm_["user_id"])
-                                        
-                                        if elm_["type"] == "link":
-                                            link_count += 1
-                                            links.append(elm_["url"])
+            for blk in msg["blocks"]:
+                if "elements" in blk:
+                    for elm in blk["elements"]:
+                        if "elements" in elm:
+                            for elm_ in elm["elements"]:
+                                if "type" in elm_:
+                                    if elm_["type"] == "emoji":
+                                        emoji_list.append(elm_["name"])
+                                    elif elm_["type"] == "user":
+                                        mention_list.append(elm_["user_id"])
+                                    elif elm_["type"] == "link":
+                                        links.append(elm_["url"])
 
+            msg_dict["emojis"] = emoji_list
+            msg_dict["mentions"] = mention_list
+            msg_dict["links"] = links
+            msg_dict["link_count"] = len(links)
 
-                msg_list["emojis"].append(emoji_list)
-                msg_list["mentions"].append(mention_list)
-                msg_list["links"].append(links)
-                msg_list["link_count"].append(link_count)
-            else:
-                msg_list["emojis"].append(None)
-                msg_list["mentions"].append(None)
-                msg_list["links"].append(None)
-                msg_list["link_count"].append(0)
-    
+        msg_list.append(msg_dict)
+
     return msg_list
+
 
 def from_msg_get_replies(msg):
     replies = []
@@ -135,22 +112,25 @@ def from_msg_get_replies(msg):
             pass
     return replies
 
+
 def msgs_to_df(msgs):
     msg_list = get_messages_dict(msgs)
     df = pd.DataFrame(msg_list)
     return df
+
 
 def process_msgs(msg):
     '''
     select important columns from the message
     '''
 
-    keys = ["client_msg_id", "type", "text", "user", "ts", "team", 
+    keys = ["client_msg_id", "type", "text", "user", "ts", "team",
             "thread_ts", "reply_count", "reply_users_count"]
-    msg_list = {k:msg[k] for k in keys}
+    msg_list = {k: msg[k] for k in keys}
     rply_list = from_msg_get_replies(msg)
 
     return msg_list, rply_list
+
 
 def get_messages_from_channel(channel_path):
     '''
@@ -161,7 +141,7 @@ def get_messages_from_channel(channel_path):
 
     df = pd.concat([pd.DataFrame(get_messages_dict(msgs)) for msgs in channel_msgs])
     print(f"Number of messages in channel: {len(df)}")
-    
+
     return df
 
 
@@ -179,4 +159,5 @@ def convert_2_timestamp(column, data):
                 a = datetime.datetime.fromtimestamp(float(time_unix))
                 timestamp_.append(a.strftime('%Y-%m-%d %H:%M:%S'))
         return timestamp_
-    else: print(f"{column} not in data")
+    else:
+        print(f"{column} not in data")
